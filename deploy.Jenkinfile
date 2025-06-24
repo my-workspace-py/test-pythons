@@ -1,0 +1,159 @@
+// Jenkinsfile for Python Pytest CI/CD Pipeline
+
+pipeline {
+    // Defines that the pipeline can run on any available agent.
+    // For more specific environments, you might use 'agent { label 'my-python-agent' }'
+    agent any
+
+    // Defines environment variables for the pipeline.
+    // PYTHON_VERSION: Specifies the Python version to use.
+    // VENV_NAME: Name of the virtual environment directory.
+    environment {
+        PYTHON_VERSION = 'python3.9' // Adjust this to your desired Python version
+        VENV_NAME = 'venv'
+    }
+
+    // Defines the different stages of the CI/CD pipeline.
+    stages {
+        // Stage 1: Checkout - Clones the source code from the configured SCM (e.g., Git).
+        stage('Checkout') {
+            steps {
+                script {
+                    echo 'Checking out source code...'
+                    // Checks out the code from the repository linked to the Jenkins job.
+                    // If you're using a specific branch or tag, you can configure it in Jenkins job settings.
+                    checkout scm
+                }
+            }
+        }
+
+        // Stage 2: Setup Environment - Ensures Python and virtual environment are ready.
+        stage('Setup Environment') {
+            steps {
+                script {
+                    echo "Setting up Python environment (${env.PYTHON_VERSION})..."
+                    // Ensures the specified Python version is available.
+                    // The exact command might vary based on your Jenkins agent's setup.
+                    sh "${env.PYTHON_VERSION} --version"
+
+                    // Create and activate a virtual environment.
+                    // This isolates project dependencies from the system-wide Python installation.
+                    sh "${env.PYTHON_VERSION} -m venv ${env.VENV_NAME}"
+                    echo "Virtual environment created at ${env.VENV_NAME}"
+                }
+            }
+        }
+
+        // Stage 3: Install Dependencies - Installs Python packages from requirements.txt.
+        stage('Install Dependencies') {
+            steps {
+                script {
+                    echo 'Installing dependencies from requirements.txt...'
+                    // Activate the virtual environment and install dependencies.
+                    // 'source' is used for Bash, 'call' for Windows Batch.
+                    // For cross-platform compatibility in Jenkins, 'sh' command with explicit venv path is often preferred.
+                    sh """
+                        source ${env.VENV_NAME}/bin/activate
+                        pip install --upgrade pip
+                        pip install -r requirements.txt
+                    """
+                    echo 'Dependencies installed.'
+                }
+            }
+        }
+
+        // Stage 4: Run Tests - Executes pytest to run your unit/integration tests.
+        stage('Run Tests') {
+            steps {
+                script {
+                    echo 'Running pytest tests...'
+                    // Activate the virtual environment and run pytest.
+                    // '--cov=your_app_module' generates coverage reports (optional).
+                    // '--junitxml=test-results.xml' generates JUnit XML reports for Jenkins to parse.
+                    sh """
+                        source ${env.VENV_NAME}/bin/activate
+                        pytest --cov=. --junitxml=test-results.xml
+                    """
+                    echo 'Tests completed.'
+                }
+            }
+            // Post-build actions for the test stage.
+            post {
+                always {
+                    // Publishes JUnit test results, making them visible in Jenkins UI.
+                    junit 'test-results.xml'
+                    // Archives the coverage report if generated.
+                    archiveArtifacts artifacts: 'coverage.xml', allowEmpty: true
+                }
+            }
+        }
+
+        // Stage 5: Build/Package (Optional for Python, but good for deployment artifacts)
+        // This stage can be used to create a distributable package (e.g., wheel, tarball).
+        stage('Build/Package') {
+            steps {
+                script {
+                    echo 'Building/Packaging application (if applicable)...'
+                    // Example: Create a Python wheel package.
+                    // You would need `setuptools` and a `setup.py` file for this.
+                    sh """
+                        source ${VENV_NAME}/bin/activate
+                        pip install wheel
+                        ${PYTHON_VERSION} setup.py sdist bdist_wheel
+                    """
+                    // Archive the built artifacts.
+                    archiveArtifacts artifacts: 'dist/*.whl, dist/*.tar.gz', allowEmpty: true
+                }
+            }
+        }
+
+        // Stage 6: Deploy - Deploys the application to a target environment.
+        // This is a placeholder and needs to be customized heavily based on your deployment strategy.
+        stage('Deploy') {
+            steps {
+                script {
+                    echo 'Deploying application...'
+                    // --- IMPORTANT: CUSTOMIZE THIS DEPLOYMENT SECTION ---
+                    // Examples for deployment:
+
+                    // 1. Simple Copy to Remote Server (requires SSH Agent on Jenkins and SSH connection setup)
+                    // sh """
+                    //     scp -r . username@your-remote-host:/path/to/deployment/directory
+                    // """
+
+                    // 2. Docker Build and Push (requires Docker daemon on Jenkins agent)
+                    // sh 'docker build -t your-registry/your-app:latest .'
+                    // withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                    //     sh 'docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD your-registry'
+                    //     sh 'docker push your-registry/your-app:latest'
+                    // }
+
+                    // 3. Kubernetes Deployment (requires kubectl and K8s context)
+                    // sh 'kubectl apply -f k8s/deployment.yaml'
+
+                    // 4. Ansible Playbook Execution
+                    // sh 'ansible-playbook -i inventory.ini playbook.yaml'
+
+                    // For now, let's just print a success message.
+                    echo 'Deployment placeholder completed. Please customize this stage!'
+                }
+            }
+        }
+    }
+
+    // Post-pipeline actions, regardless of stage success or failure.
+    post {
+        always {
+            echo 'Pipeline finished.'
+            // Clean up the workspace to ensure a fresh start for the next build.
+            // DO NOT USE 'cleanWs()' if you need artifacts for subsequent stages or downstream jobs.
+            // cleanWs()
+        }
+        success {
+            echo 'Pipeline succeeded! 🎉'
+        }
+        failure {
+            echo 'Pipeline failed! 😭'
+        }
+    }
+}
